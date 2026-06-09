@@ -52,8 +52,12 @@ export const AuthProvider = ({ children }) => {
     });
 
     if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.detail || 'Login failed. Please check credentials.');
+      const contentType = response.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'Login failed. Please check credentials.');
+      }
+      throw new Error('Server error. Please try again later.');
     }
 
     const data = await response.json();
@@ -73,8 +77,12 @@ export const AuthProvider = ({ children }) => {
     });
 
     if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.detail || 'Registration failed.');
+      const contentType = response.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'Registration failed.');
+      }
+      throw new Error('Server error. Please try again later.');
     }
 
     const data = await response.json();

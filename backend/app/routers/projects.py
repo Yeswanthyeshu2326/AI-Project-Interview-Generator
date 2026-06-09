@@ -16,7 +16,7 @@ from backend.app.ai.gemini_client import (
     analyze_project_ai, generate_questions_ai, generate_resume_ai
 )
 
-router = APIRouter(prefix="/projects", tags=["projects"])
+router = APIRouter(prefix="/api/projects", tags=["projects"])
 
 def run_pipeline(project_name: str, repo_path: str, user_id: str, github_url: Optional[str], db: Session) -> Project:
     # 1. Analyze codebase files & LOC

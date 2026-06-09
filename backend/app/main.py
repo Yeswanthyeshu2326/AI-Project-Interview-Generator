@@ -1,7 +1,7 @@
 import sys
 import os
 
-# Add parent directory of 'backend' to sys.path to resolve absolute imports in Vercel
+# Add project root to sys.path so 'backend' package is importable everywhere
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
 import uvicorn
@@ -30,16 +30,11 @@ app.add_middleware(
 )
 
 # Mount Routers
-import os
-IS_VERCEL = os.environ.get("VERCEL") == "1"
-prefix_override = "" if IS_VERCEL else "/api"
-
-app.include_router(auth.router, prefix=prefix_override)
-app.include_router(projects.router, prefix=prefix_override)
-app.include_router(interviews.router, prefix=prefix_override)
-app.include_router(mock.router, prefix=prefix_override)
-app.include_router(resume.router, prefix=prefix_override)
-
+app.include_router(auth.router)
+app.include_router(projects.router)
+app.include_router(interviews.router)
+app.include_router(mock.router)
+app.include_router(resume.router)
 
 @app.get("/")
 def read_root():

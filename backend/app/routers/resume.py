@@ -8,7 +8,7 @@ from backend.app.database import get_db
 from backend.app.models import User, Project, ResumeEntry
 from backend.app.schemas import ResumeEntryResponse
 
-router = APIRouter(prefix="/resume", tags=["resume"])
+router = APIRouter(prefix="/api/resume", tags=["resume"])
 
 @router.get("/{project_id}", response_model=ResumeEntryResponse)
 def get_resume_entry(

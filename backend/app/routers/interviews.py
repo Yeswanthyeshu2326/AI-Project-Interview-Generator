@@ -14,7 +14,7 @@ from backend.app.database import get_db
 from backend.app.models import User, Project, Question
 from backend.app.schemas import QuestionResponse
 
-router = APIRouter(prefix="/interviews", tags=["interviews"])
+router = APIRouter(prefix="/api/interviews", tags=["interviews"])
 
 @router.get("/{project_id}/questions", response_model=List[QuestionResponse])
 def get_questions(

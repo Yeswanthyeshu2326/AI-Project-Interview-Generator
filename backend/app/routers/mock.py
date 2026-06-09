@@ -10,7 +10,7 @@ from backend.app.schemas import (
 )
 from backend.app.ai.gemini_client import evaluate_mock_turn_ai
 
-router = APIRouter(prefix="/mock", tags=["mock"])
+router = APIRouter(prefix="/api/mock", tags=["mock"])
 
 @router.post("/session", response_model=MockSessionResponse)
 def start_session(
