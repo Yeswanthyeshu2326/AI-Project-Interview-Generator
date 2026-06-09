@@ -2,13 +2,13 @@ from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from backend.app.auth import get_current_user
-from backend.app.database import get_db
-from backend.app.models import User, Project, MockSession, MockMessage
-from backend.app.schemas import (
+from app.auth import get_current_user
+from app.database import get_db
+from app.models import User, Project, MockSession, MockMessage
+from app.schemas import (
     MockSessionCreate, MockSessionResponse, MockMessageCreate, MockMessageResponse
 )
-from backend.app.ai.gemini_client import evaluate_mock_turn_ai
+from app.ai.gemini_client import evaluate_mock_turn_ai
 
 router = APIRouter(prefix="/api/mock", tags=["mock"])
 

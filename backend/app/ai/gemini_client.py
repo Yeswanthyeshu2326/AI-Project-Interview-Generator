@@ -3,8 +3,8 @@ import re
 import os
 import google.generativeai as genai
 from typing import Optional
-from backend.app.config import settings
-from backend.app.ai.prompts import (
+from app.config import settings
+from app.ai.prompts import (
     SYSTEM_ANALYZE_INSTRUCTION, ANALYZE_PROMPT_TEMPLATE,
     SYSTEM_QUESTIONS_INSTRUCTION, QUESTIONS_PROMPT_TEMPLATE,
     SYSTEM_MOCK_INSTRUCTION, SYSTEM_RESUME_INSTRUCTION

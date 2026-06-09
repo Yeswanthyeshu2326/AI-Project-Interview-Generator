@@ -9,10 +9,10 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, KeepTogethe
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 
-from backend.app.auth import get_current_user
-from backend.app.database import get_db
-from backend.app.models import User, Project, Question
-from backend.app.schemas import QuestionResponse
+from app.auth import get_current_user
+from app.database import get_db
+from app.models import User, Project, Question
+from app.schemas import QuestionResponse
 
 router = APIRouter(prefix="/api/interviews", tags=["interviews"])
 

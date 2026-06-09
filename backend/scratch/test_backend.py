@@ -6,14 +6,16 @@ import unittest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-# Ensure project root is in system path
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
+# Ensure project root and backend folder are in system path
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+sys.path.insert(0, project_root)
+sys.path.insert(0, os.path.join(project_root, "backend"))
 
-from backend.app.analyzer.code_parser import analyze_codebase
-from backend.app.analyzer.tech_detector import detect_technologies, calculate_complexity
-from backend.app.database import Base
-from backend.app.models import User, Project, CodeAnalysis
-from backend.app.auth import get_password_hash, verify_password
+from app.analyzer.code_parser import analyze_codebase
+from app.analyzer.tech_detector import detect_technologies, calculate_complexity
+from app.database import Base
+from app.models import User, Project, CodeAnalysis
+from app.auth import get_password_hash, verify_password
 
 class TestBackendPipeline(unittest.TestCase):
     def setUp(self):

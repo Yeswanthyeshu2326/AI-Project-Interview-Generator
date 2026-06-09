@@ -5,14 +5,14 @@ from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
 from sqlalchemy.orm import Session
 
-from backend.app.auth import get_current_user
-from backend.app.database import get_db
-from backend.app.models import User, Project, CodeAnalysis, Question, ResumeEntry
-from backend.app.schemas import ProjectResponse, CodeAnalysisResponse
-from backend.app.analyzer.repo_downloader import parse_github_url, download_github_zip, extract_uploaded_zip
-from backend.app.analyzer.code_parser import analyze_codebase
-from backend.app.analyzer.tech_detector import detect_technologies, calculate_complexity
-from backend.app.ai.gemini_client import (
+from app.auth import get_current_user
+from app.database import get_db
+from app.models import User, Project, CodeAnalysis, Question, ResumeEntry
+from app.schemas import ProjectResponse, CodeAnalysisResponse
+from app.analyzer.repo_downloader import parse_github_url, download_github_zip, extract_uploaded_zip
+from app.analyzer.code_parser import analyze_codebase
+from app.analyzer.tech_detector import detect_technologies, calculate_complexity
+from app.ai.gemini_client import (
     analyze_project_ai, generate_questions_ai, generate_resume_ai
 )
 

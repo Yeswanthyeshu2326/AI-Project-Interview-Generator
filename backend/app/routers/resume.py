@@ -3,10 +3,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
-from backend.app.auth import get_current_user
-from backend.app.database import get_db
-from backend.app.models import User, Project, ResumeEntry
-from backend.app.schemas import ResumeEntryResponse
+from app.auth import get_current_user
+from app.database import get_db
+from app.models import User, Project, ResumeEntry
+from app.schemas import ResumeEntryResponse
 
 router = APIRouter(prefix="/api/resume", tags=["resume"])
 
