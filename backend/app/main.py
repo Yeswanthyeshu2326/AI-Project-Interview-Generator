@@ -24,11 +24,16 @@ app.add_middleware(
 )
 
 # Mount Routers
-app.include_router(auth.router)
-app.include_router(projects.router)
-app.include_router(interviews.router)
-app.include_router(mock.router)
-app.include_router(resume.router)
+import os
+IS_VERCEL = os.environ.get("VERCEL") == "1"
+prefix_override = "" if IS_VERCEL else "/api"
+
+app.include_router(auth.router, prefix=prefix_override)
+app.include_router(projects.router, prefix=prefix_override)
+app.include_router(interviews.router, prefix=prefix_override)
+app.include_router(mock.router, prefix=prefix_override)
+app.include_router(resume.router, prefix=prefix_override)
+
 
 @app.get("/")
 def read_root():

@@ -9,7 +9,7 @@ from backend.app.database import get_db
 from backend.app.models import User
 from backend.app.schemas import UserCreate, UserLogin, UserResponse, Token
 
-router = APIRouter(prefix="/api/auth", tags=["auth"])
+router = APIRouter(prefix="/auth", tags=["auth"])
 
 @router.post("/register", response_model=Token, status_code=status.HTTP_201_CREATED)
 def register(user_in: UserCreate, db: Session = Depends(get_db)):
