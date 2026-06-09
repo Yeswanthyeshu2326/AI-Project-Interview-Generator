@@ -1,0 +1,7 @@
+# Ignore node_modules and venv from Vercel deployment and functions
+frontend/node_modules/
+backend/venv/
+.git/
+.vscode/
+backend/scratch/
+backend/interview_generator.db
