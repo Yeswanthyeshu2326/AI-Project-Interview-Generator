@@ -41,27 +41,27 @@ An AI-powered, full-stack platform designed to analyze complete repositories (ZI
 
 ### 1. Landing Page
 *Welcome screen detailing platform capabilities and user authentication.*
-![Landing Page](frontend/src/assets/landing_page_mockup.png)
+
 
 ### 2. File / ZIP Ingestion
 *Generic uploader supporting code files, text PDFs, images, or project ZIPs.*
-![Project Ingestion Console](frontend/src/assets/upload_page_mockup.png)
+
 
 ### 3. Codebase Analysis Dashboard
 *Detailed codebase metrics dashboard presenting quality score, ATS scores, folder tree views, and Mermaid-rendered architecture flows.*
-![Project Dashboard](frontend/src/assets/dashboard_page_mockup.png)
+
 
 ### 4. Technical Prep Sheet & Q&A
 *Categorized list of generated interview questions showing ideal responses, expectations, pitfalls, and best practices.*
-![Interview Questions Sheet](frontend/src/assets/questions_page_mockup.png)
+
 
 ### 5. Mock Interview Chat Simulator
 *Interactive conversational thread with Vince AI technically evaluating answers in real-time with comprehensive grading feedback.*
-![Mock Interview Chat Console](frontend/src/assets/mock_interview_page_mockup.png)
+
 
 ### 6. ATS Resume Bullet Builder
 *Targeted quantified accomplishments ready for copy-pasting or text file export.*
-![Resume Generator](frontend/src/assets/resume_generator_page_mockup.png)
+
 
 ---
 
