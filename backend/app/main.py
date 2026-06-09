@@ -1,3 +1,9 @@
+import sys
+import os
+
+# Add parent directory of 'backend' to sys.path to resolve absolute imports in Vercel
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
+
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
