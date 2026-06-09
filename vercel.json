@@ -2,7 +2,7 @@
   "buildCommand": "cd frontend && npm install && npm run build",
   "outputDirectory": "frontend/dist",
   "functions": {
-    "api/index.py": {
+    "api/**": {
       "runtime": "@vercel/python",
       "excludeFiles": "frontend/**/*"
     }
