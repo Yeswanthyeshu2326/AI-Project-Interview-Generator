@@ -1,10 +1,9 @@
 {
-  "buildCommand": "cd frontend && npm install && npm run build",
+  "buildCommand": "cd frontend && npm install && npm run build && rm -rf node_modules",
   "outputDirectory": "frontend/dist",
   "functions": {
     "api/**": {
-      "runtime": "@vercel/python",
-      "excludeFiles": "frontend/**/*"
+      "runtime": "@vercel/python"
     }
   },
   "rewrites": [
