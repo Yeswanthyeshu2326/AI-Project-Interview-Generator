@@ -14,5 +14,11 @@ class Settings(BaseSettings):
     
     # Allow loading from a .env file if it exists
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    
+    def __init__(self, **values):
+        super().__init__(**values)
+        # SQLAlchemy 1.4+ deprecated 'postgres://' in favor of 'postgresql://'
+        if self.DATABASE_URL.startswith("postgres://"):
+            self.DATABASE_URL = self.DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
 settings = Settings()
