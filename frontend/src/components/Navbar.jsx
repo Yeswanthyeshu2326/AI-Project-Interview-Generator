@@ -106,9 +106,22 @@ export default function Navbar() {
             </button>
           </div>
         ) : (
-          <Link to="/" className="btn btn-primary" style={{ padding: '8px 18px', fontSize: '0.85rem' }}>
+          <button 
+            onClick={() => {
+              if (window.location.pathname !== '/') {
+                navigate('/');
+                setTimeout(() => {
+                  document.getElementById('auth-section')?.scrollIntoView({ behavior: 'smooth' });
+                }, 100);
+              } else {
+                document.getElementById('auth-section')?.scrollIntoView({ behavior: 'smooth' });
+              }
+            }}
+            className="btn btn-primary" 
+            style={{ padding: '8px 18px', fontSize: '0.85rem' }}
+          >
             Get Started
-          </Link>
+          </button>
         )}
       </div>
     </nav>

@@ -94,7 +94,7 @@ export default function LandingPage() {
         </section>
 
         {/* Auth form */}
-        <div className="auth-panel-container" style={{ marginTop: 0 }}>
+        <div id="auth-section" className="auth-panel-container" style={{ marginTop: 0 }}>
           <div className="glass-panel auth-form-card">
             <h2 className="auth-title">
               {authMode === 'login' ? 'Welcome Back' : 'Create Account'}
