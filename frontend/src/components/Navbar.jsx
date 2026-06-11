@@ -72,6 +72,30 @@ export default function Navbar() {
           {theme === 'dark' ? '☀️' : '🌙'}
         </button>
 
+        <button 
+          onClick={() => {
+            const currentKey = localStorage.getItem('gemini_api_key') || '';
+            const newKey = prompt("Enter your Google Gemini API Key:", currentKey);
+            if (newKey !== null) {
+              localStorage.setItem('gemini_api_key', newKey.trim());
+              window.location.reload();
+            }
+          }} 
+          style={{
+            background: 'none',
+            border: 'none',
+            color: 'var(--text-secondary)',
+            cursor: 'pointer',
+            fontSize: '1.2rem',
+            padding: '4px',
+            display: 'flex',
+            alignItems: 'center'
+          }}
+          title="Configure Gemini API Key"
+        >
+          ⚙️
+        </button>
+
         {user ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
             <span style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>

@@ -1,17 +1,21 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams, Link, useNavigate } from 'react-router-dom';
-import { useAuth, API_URL } from '../context/AuthContext';
+import { useAuth } from '../context/AuthContext';
+import { supabase } from '../supabaseClient';
+import { evaluateMockResponse } from '../utils/gemini';
 import ScoreRing from '../components/ScoreRing';
 import '../styles/mock.css';
 
 export default function MockInterview() {
-  const { token } = useAuth();
+  const { user } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const projectId = searchParams.get('project');
 
+  const [project, setProject] = useState(null);
   const [session, setSession] = useState(null);
   const [messages, setMessages] = useState([]);
+  const [questions, setQuestions] = useState([]);
   const [inputVal, setInputVal] = useState('');
   
   // Interactive loading toggles
@@ -27,63 +31,103 @@ export default function MockInterview() {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, submitting]);
 
-  // Start/Fetch mock session
+  // Load project details
   useEffect(() => {
-    if (!projectId) return;
+    if (!projectId || !user) return;
+
+    const fetchProjectDetails = async () => {
+      try {
+        const { data: projData, error: projErr } = await supabase
+          .from('projects')
+          .select('*')
+          .eq('id', projectId)
+          .single();
+
+        if (projErr) throw projErr;
+        setProject(projData);
+
+        const { data: qData, error: qErr } = await supabase
+          .from('questions')
+          .select('*')
+          .eq('project_id', projectId);
+
+        if (qErr) throw qErr;
+        setQuestions(qData || []);
+      } catch (err) {
+        console.error(err);
+        setError("Failed to load project details.");
+      }
+    };
+
+    fetchProjectDetails();
+  }, [projectId, user]);
+
+  // Start/Fetch mock session from Supabase
+  useEffect(() => {
+    if (!projectId || !user || !project) return;
 
     const startOrFetchSession = async () => {
       setLoading(true);
       setError('');
       try {
-        // Find existing active session for this project, or start a new one
-        const activeRes = await fetch(`${API_URL}/api/mock/sessions`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
+        // Find existing active session for this project
+        const { data: activeSessions, error: activeErr } = await supabase
+          .from('mock_sessions')
+          .select('*')
+          .eq('project_id', projectId)
+          .eq('user_id', user.id)
+          .eq('status', 'active');
+
+        if (activeErr) throw activeErr;
+
+        if (activeSessions && activeSessions.length > 0) {
+          const active = activeSessions[0];
+          setSession(active);
+
+          // Fetch messages
+          const { data: msgsData, error: msgsErr } = await supabase
+            .from('mock_messages')
+            .select('*')
+            .eq('session_id', active.id)
+            .order('created_at', { ascending: true });
+
+          if (msgsErr) throw msgsErr;
+          setMessages(msgsData || []);
+          setLoading(false);
+          return;
+        }
+
+        // Initialize a new mock interview session
+        const { data: newSession, error: initErr } = await supabase
+          .from('mock_sessions')
+          .insert({
+            user_id: user.id,
+            project_id: projectId,
+            status: 'active'
+          })
+          .select()
+          .single();
+
+        if (initErr) throw initErr;
+        setSession(newSession);
+
+        // Add initial greeting message
+        const greeting = `Hello! I am Vince, your technical interviewer today. I see you've submitted the project "${project.name}". Let's start with a general question: can you explain what this project does and the primary engineering problems you solved?`;
         
-        if (activeRes.ok) {
-          const sessions = await activeRes.json();
-          const active = sessions.find(s => s.project_id === projectId && s.status === 'active');
-          
-          if (active) {
-            // Load this session's history
-            const detailsRes = await fetch(`${API_URL}/api/mock/session/${active.id}`, {
-              headers: { 'Authorization': `Bearer ${token}` }
-            });
-            if (detailsRes.ok) {
-              const details = await detailsRes.json();
-              setSession(details.session);
-              setMessages(details.messages);
-              setLoading(false);
-              return;
-            }
-          }
-        }
+        const { data: greetingMsg, error: greetErr } = await supabase
+          .from('mock_messages')
+          .insert({
+            session_id: newSession.id,
+            sender: 'interviewer',
+            message: greeting
+          })
+          .select()
+          .single();
 
-        // Otherwise, initialize a new mock interview session
-        const initRes = await fetch(`${API_URL}/api/mock/session`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ project_id: projectId })
-        });
-
-        if (initRes.ok) {
-          const newSession = await initRes.json();
-          setSession(newSession);
-          // Initial greeting message
-          const detailsRes = await fetch(`${API_URL}/api/mock/session/${newSession.id}`, {
-            headers: { 'Authorization': `Bearer ${token}` }
-          });
-          if (detailsRes.ok) {
-            const details = await detailsRes.json();
-            setMessages(details.messages);
-          }
-        } else {
-          setError('Failed to configure mock interview.');
-        }
+        if (greetErr) throw greetErr;
+        setMessages([greetingMsg]);
       } catch (err) {
+        console.error(err);
         setError('Error initializing the simulation.');
       } finally {
         setLoading(false);
@@ -91,7 +135,7 @@ export default function MockInterview() {
     };
 
     startOrFetchSession();
-  }, [projectId, token]);
+  }, [projectId, user, project]);
 
   const handleSendMessage = async (e) => {
     e.preventDefault();
@@ -101,51 +145,64 @@ export default function MockInterview() {
     setInputVal('');
     setSubmitting(true);
 
-    // Append local user message optimistically
-    const tempUserMsg = {
-      id: `temp-${Date.now()}`,
-      sender: 'user',
-      message: currentText,
-      created_at: new Date().toISOString()
-    };
-    setMessages(prev => [...prev, tempUserMsg]);
-
+    // Save user message in Supabase
     try {
-      const response = await fetch(`${API_URL}/api/mock/session/${session.id}/message`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ message: currentText })
-      });
+      const { data: userMsg, error: userMsgErr } = await supabase
+        .from('mock_messages')
+        .insert({
+          session_id: session.id,
+          sender: 'user',
+          message: currentText
+        })
+        .select()
+        .single();
 
-      if (response.ok) {
-        const reply = await response.json();
-        
-        // Update user message with evaluation, append interviewer response
-        setMessages(prev => {
-          const updated = [...prev];
-          const userIdx = updated.findIndex(m => m.id === tempUserMsg.id);
-          if (userIdx !== -1) {
-            updated[userIdx].evaluation = reply.evaluation;
-          }
-          return [
-            ...updated,
-            {
-              id: reply.interviewer_msg_id || `interviewer-${Date.now()}`,
-              sender: 'interviewer',
-              message: reply.interviewer_response,
-              created_at: new Date().toISOString()
-            }
-          ];
-        });
-      } else {
-        alert("Server failed to respond to message.");
-      }
+      if (userMsgErr) throw userMsgErr;
+
+      // Optimistically append user message
+      setMessages(prev => [...prev, userMsg]);
+
+      // Compile conversation history for Gemini context
+      const messageHistory = messages.concat(userMsg).map(m => ({
+        role: m.sender === 'user' ? 'user' : 'model',
+        parts: [{ text: m.message }]
+      }));
+
+      // Evaluate response and generate follow-up using Gemini
+      const reply = await evaluateMockResponse(project.name, questions, messageHistory, currentText);
+
+      // Save user evaluation and interviewer reply in Supabase
+      const { error: evalUpdateErr } = await supabase
+        .from('mock_messages')
+        .update({ evaluation: reply.evaluation })
+        .eq('id', userMsg.id);
+
+      if (evalUpdateErr) throw evalUpdateErr;
+
+      const { data: interviewerMsg, error: interviewerErr } = await supabase
+        .from('mock_messages')
+        .insert({
+          session_id: session.id,
+          sender: 'interviewer',
+          message: reply.interviewer_response
+        })
+        .select()
+        .single();
+
+      if (interviewerErr) throw interviewerErr;
+
+      // Update message list
+      setMessages(prev => {
+        const updated = [...prev];
+        const userIdx = updated.findIndex(m => m.id === userMsg.id);
+        if (userIdx !== -1) {
+          updated[userIdx].evaluation = reply.evaluation;
+        }
+        return [...updated, interviewerMsg];
+      });
     } catch (err) {
       console.error(err);
-      alert("Network error sending response.");
+      alert("Error sending message: " + err.message);
     } finally {
       setSubmitting(false);
     }
@@ -156,19 +213,26 @@ export default function MockInterview() {
     
     setFinishing(true);
     try {
-      const response = await fetch(`${API_URL}/api/mock/session/${session.id}/complete`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (response.ok) {
-        const updatedSession = await response.json();
-        setSession(updatedSession);
-      } else {
-        alert("Could not finalize mock session.");
-      }
+      // Calculate overall session score based on user answers
+      const userMsgs = messages.filter(m => m.sender === 'user' && m.evaluation?.score);
+      const totalScore = userMsgs.reduce((acc, curr) => acc + curr.evaluation.score, 0);
+      const finalScore = userMsgs.length > 0 ? Math.round(totalScore / userMsgs.length) : 75;
+
+      const { data: updatedSession, error: updateErr } = await supabase
+        .from('mock_sessions')
+        .update({
+          status: 'completed',
+          score: finalScore
+        })
+        .eq('id', session.id)
+        .select()
+        .single();
+
+      if (updateErr) throw updateErr;
+      setSession(updatedSession);
     } catch (err) {
       console.error(err);
-      alert("Error finishing session.");
+      alert("Error finishing session: " + err.message);
     } finally {
       setFinishing(false);
     }
@@ -206,7 +270,7 @@ export default function MockInterview() {
         <div className="glass-panel completion-screen">
           <h2 style={{ fontSize: '1.75rem', color: 'var(--accent)' }}>Interview Completed!</h2>
           <p style={{ color: 'var(--text-secondary)', marginTop: '8px' }}>
-            Well done. You have successfully finished the mock presentation session for <b>{session.project_name}</b>.
+            Well done. You have successfully finished the mock presentation session for <b>{project?.name}</b>.
           </p>
 
           <div className="completion-score-ring">
@@ -217,32 +281,37 @@ export default function MockInterview() {
           <div className="feedback-bullets">
             <h3 style={{ fontSize: '1.1rem', marginBottom: '12px' }}>Session Performance Feedback</h3>
             
-            {messages.filter(m => m.sender === 'user' && m.evaluation).map((m, idx) => (
-              <div key={idx} style={{
-                background: 'rgba(255, 255, 255, 0.01)',
-                border: '1px solid var(--border-color)',
-                padding: '16px',
-                borderRadius: '8px',
-                marginBottom: '12px'
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                  <span style={{ fontWeight: '700', fontSize: '0.9rem', color: 'var(--primary)' }}>Q: {m.message.slice(0, 50)}...</span>
-                  <span style={{
-                    fontSize: '0.8rem',
-                    background: 'rgba(16, 185, 129, 0.1)',
-                    color: 'var(--accent)',
-                    padding: '2px 8px',
-                    borderRadius: '4px',
-                    fontWeight: '700'
-                  }}>Score: {m.evaluation.score}</span>
+            {messages.filter(m => m.sender === 'user' && m.evaluation).length === 0 ? (
+              <div style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>No responses were submitted for detailed evaluations.</div>
+            ) : (
+              messages.filter(m => m.sender === 'user' && m.evaluation).map((m, idx) => (
+                <div key={idx} style={{
+                  background: 'rgba(255, 255, 255, 0.01)',
+                  border: '1px solid var(--border-color)',
+                  padding: '16px',
+                  borderRadius: '8px',
+                  marginBottom: '12px'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                    <span style={{ fontWeight: '700', fontSize: '0.9rem', color: 'var(--primary)' }}>Answer: "{m.message.slice(0, 50)}..."</span>
+                    <span style={{
+                      fontSize: '0.8rem',
+                      background: 'rgba(16, 185, 129, 0.1)',
+                      color: 'var(--accent)',
+                      padding: '2px 8px',
+                      borderRadius: '4px',
+                      fontWeight: '700'
+                    }}>Score: {m.evaluation.score}</span>
+                  </div>
+                  <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
+                    • <b>Accuracy:</b> {m.evaluation.technical_accuracy}<br/>
+                    • <b>Communication:</b> {m.evaluation.communication}<br/>
+                    • <b>Completeness:</b> {m.evaluation.completeness}<br/>
+                    • <b>Confidence:</b> {m.evaluation.confidence}
+                  </div>
                 </div>
-                <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
-                  • <b>Accuracy:</b> {m.evaluation.technical_accuracy}<br/>
-                  • <b>Communication:</b> {m.evaluation.communication}<br/>
-                  • <b>Confidence:</b> {m.evaluation.confidence}
-                </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
 
           <div style={{ display: 'flex', gap: '16px', justifyContent: 'center' }}>
@@ -334,7 +403,7 @@ export default function MockInterview() {
                   <span className="chat-sender-label">Interviewer</span>
                   <div className="chat-bubble" style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
                     <div className="spinner" style={{ width: '12px', height: '12px', borderWidth: '1.5px' }}></div>
-                    <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Typing feedback...</span>
+                    <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Evaluating answer...</span>
                   </div>
                 </div>
               )}

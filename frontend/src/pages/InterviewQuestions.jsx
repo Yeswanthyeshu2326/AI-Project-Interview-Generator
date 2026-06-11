@@ -1,13 +1,22 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
-import { useAuth, API_URL } from '../context/AuthContext';
+import { useAuth } from '../context/AuthContext';
+import { supabase } from '../supabaseClient';
+import { jsPDF } from 'jspdf';
 import '../styles/dashboard.css';
 
 function QuestionCard({ item, index }) {
   const [expanded, setExpanded] = useState(false);
 
+  const diffColors = {
+    beginner: { bg: 'rgba(16, 185, 129, 0.1)', text: 'var(--accent)', border: 'var(--accent-glow)' },
+    intermediate: { bg: 'rgba(245, 158, 11, 0.1)', text: 'var(--warning)', border: 'rgba(245, 158, 11, 0.2)' },
+    advanced: { bg: 'rgba(239, 68, 68, 0.1)', text: 'var(--danger)', border: 'rgba(239, 68, 68, 0.2)' }
+  };
+  const dc = diffColors[item.difficulty] || diffColors.beginner;
+
   return (
-    <div className="glass-panel" style={{ padding: '20px', marginBottom: '16px' }}>
+    <div className="glass-panel" style={{ padding: '14px 18px', marginBottom: '10px' }}>
       <div 
         onClick={() => setExpanded(!expanded)} 
         style={{
@@ -18,78 +27,72 @@ function QuestionCard({ item, index }) {
           userSelect: 'none'
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', paddingRight: '20px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', paddingRight: '12px' }}>
           <span style={{
-            fontSize: '0.8rem',
-            background: 
-              item.difficulty === 'beginner' ? 'rgba(16, 185, 129, 0.1)' :
-              item.difficulty === 'intermediate' ? 'rgba(245, 158, 11, 0.1)' : 'rgba(239, 68, 68, 0.1)',
-            color: 
-              item.difficulty === 'beginner' ? 'var(--accent)' :
-              item.difficulty === 'intermediate' ? 'var(--warning)' : 'var(--danger)',
-            border: '1px solid',
-            borderColor: 
-              item.difficulty === 'beginner' ? 'var(--accent-glow)' :
-              item.difficulty === 'intermediate' ? 'rgba(245, 158, 11, 0.2)' : 'rgba(239, 68, 68, 0.2)',
+            fontSize: '0.7rem',
+            background: dc.bg,
+            color: dc.text,
+            border: `1px solid ${dc.border}`,
             padding: '2px 8px',
             borderRadius: '4px',
             textTransform: 'uppercase',
-            fontWeight: '600',
-            marginTop: '2px'
+            fontWeight: '700',
+            whiteSpace: 'nowrap',
+            letterSpacing: '0.3px'
           }}>
             {item.difficulty}
           </span>
-          <h3 style={{ fontSize: '1.05rem', lineHeight: '1.4' }}>
+          <span style={{ fontSize: '0.92rem', lineHeight: '1.35', fontWeight: '500' }}>
             Q{index}. {item.question}
-          </h3>
+          </span>
         </div>
-        <span style={{ fontSize: '1.2rem', color: 'var(--text-secondary)' }}>
+        <span style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', flexShrink: 0 }}>
           {expanded ? '▲' : '▼'}
         </span>
       </div>
 
       {expanded && (
         <div style={{
-          marginTop: '20px',
-          paddingTop: '16px',
+          marginTop: '14px',
+          paddingTop: '12px',
           borderTop: '1px solid var(--border-color)',
           display: 'flex',
           flexDirection: 'column',
-          gap: '16px'
+          gap: '10px'
         }}>
           <div>
-            <div style={{ fontWeight: '700', fontSize: '0.9rem', color: 'var(--primary)', marginBottom: '4px' }}>
-              Ideal Answer
+            <div style={{ fontWeight: '700', fontSize: '0.8rem', color: 'var(--primary)', marginBottom: '2px' }}>
+              💡 Ideal Answer
             </div>
-            <p style={{ fontSize: '0.95rem', color: 'var(--text-primary)', lineHeight: '1.6' }}>
+            <p style={{ fontSize: '0.88rem', color: 'var(--text-primary)', lineHeight: '1.5', margin: 0 }}>
               {item.ideal_answer}
             </p>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '16px' }}>
-            <div style={{ background: 'rgba(255, 255, 255, 0.01)', border: '1px solid var(--border-color)', padding: '12px', borderRadius: '8px' }}>
-              <div style={{ fontWeight: '700', fontSize: '0.85rem', color: 'var(--secondary)', marginBottom: '4px' }}>
-                Interviewer Expectations
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
+            <div style={{ background: 'rgba(255, 255, 255, 0.01)', border: '1px solid var(--border-color)', padding: '10px', borderRadius: '6px' }}>
+              <div style={{ fontWeight: '700', fontSize: '0.75rem', color: 'var(--secondary)', marginBottom: '3px' }}>
+                🎯 Expectations
               </div>
-              <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: '1.5' }}>
+              <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: '1.4', margin: 0 }}>
                 {item.interviewer_expectations}
               </p>
             </div>
 
-            <div style={{ background: 'rgba(255, 255, 255, 0.01)', border: '1px solid var(--border-color)', padding: '12px', borderRadius: '8px' }}>
-              <div style={{ fontWeight: '700', fontSize: '0.85rem', color: 'var(--danger)', marginBottom: '4px' }}>
-                Common Mistakes
+            <div style={{ background: 'rgba(255, 255, 255, 0.01)', border: '1px solid var(--border-color)', padding: '10px', borderRadius: '6px' }}>
+              <div style={{ fontWeight: '700', fontSize: '0.75rem', color: 'var(--danger)', marginBottom: '3px' }}>
+                ⚠️ Mistakes
               </div>
-              <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: '1.5' }}>
+              <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: '1.4', margin: 0 }}>
                 {item.common_mistakes}
               </p>
             </div>
 
-            <div style={{ background: 'rgba(255, 255, 255, 0.01)', border: '1px solid var(--border-color)', padding: '12px', borderRadius: '8px' }}>
-              <div style={{ fontWeight: '700', fontSize: '0.85rem', color: 'var(--accent)', marginBottom: '4px' }}>
-                Best Practices
+            <div style={{ background: 'rgba(255, 255, 255, 0.01)', border: '1px solid var(--border-color)', padding: '10px', borderRadius: '6px' }}>
+              <div style={{ fontWeight: '700', fontSize: '0.75rem', color: 'var(--accent)', marginBottom: '3px' }}>
+                ✅ Best Practice
               </div>
-              <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: '1.5' }}>
+              <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: '1.4', margin: 0 }}>
                 {item.best_practices}
               </p>
             </div>
@@ -101,7 +104,7 @@ function QuestionCard({ item, index }) {
 }
 
 export default function InterviewQuestions() {
-  const { token } = useAuth();
+  const { user } = useAuth();
   const [searchParams] = useSearchParams();
   const projectId = searchParams.get('project');
 
@@ -114,67 +117,130 @@ export default function InterviewQuestions() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    if (!projectId) return;
+    if (!projectId || !user) return;
 
     const fetchProjectAndQuestions = async () => {
       setLoading(true);
       setError('');
       try {
         // Fetch project metadata
-        const projRes = await fetch(`${API_URL}/api/projects/${projectId}`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if (projRes.ok) {
-          const projData = await projRes.json();
-          setProject(projData);
-        }
+        const { data: projData, error: projErr } = await supabase
+          .from('projects')
+          .select('*')
+          .eq('id', projectId)
+          .single();
+
+        if (projErr) throw projErr;
+        setProject(projData);
 
         // Fetch questions
-        const qUrl = difficultyFilter === 'all' 
-          ? `${API_URL}/api/interviews/${projectId}/questions`
-          : `${API_URL}/api/interviews/${projectId}/questions?difficulty=${difficultyFilter}`;
-          
-        const qRes = await fetch(qUrl, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if (qRes.ok) {
-          const qData = await qRes.json();
-          setQuestions(qData);
-        } else {
-          setError('Failed to load interview questions.');
+        let query = supabase
+          .from('questions')
+          .select('*')
+          .eq('project_id', projectId);
+
+        if (difficultyFilter !== 'all') {
+          query = query.eq('difficulty', difficultyFilter);
         }
+
+        const { data: qData, error: qErr } = await query;
+        if (qErr) throw qErr;
+
+        setQuestions(qData || []);
       } catch (err) {
-        setError('Error downloading project details.');
+        console.error(err);
+        setError('Error downloading project details and questions from Supabase.');
       } finally {
         setLoading(false);
       }
     };
 
     fetchProjectAndQuestions();
-  }, [projectId, token, difficultyFilter]);
+  }, [projectId, user, difficultyFilter]);
 
-  const handleDownloadPDF = async () => {
+  const handleDownloadPDF = () => {
+    if (!project || questions.length === 0) return;
     setPdfDownloading(true);
     try {
-      const response = await fetch(`${API_URL}/api/interviews/${projectId}/download-pdf`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+      const doc = new jsPDF();
+      let y = 20;
+
+      // Header
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(22);
+      doc.text(`${project.name} - Interview Prep Guide`, 20, y);
+      y += 10;
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(10);
+      doc.text(`Generated on ${new Date().toLocaleDateString()} via AI Project Interviewer`, 20, y);
+      y += 15;
+
+      questions.forEach((q, idx) => {
+        // Page overflow check before printing question
+        if (y > 250) {
+          doc.addPage();
+          y = 20;
+        }
+
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(12);
+        const qText = `Q${idx + 1}. [${q.difficulty.toUpperCase()}] ${q.question}`;
+        const splitQ = doc.splitTextToSize(qText, 170);
+        doc.text(splitQ, 20, y);
+        y += splitQ.length * 6 + 2;
+
+        // Print Ideal Answer
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(10);
+        
+        const answerText = `Ideal Answer: ${q.ideal_answer}`;
+        const splitA = doc.splitTextToSize(answerText, 170);
+        
+        // Overflow check before printing answer
+        if (y + splitA.length * 5 > 270) {
+          doc.addPage();
+          y = 20;
+        }
+        doc.text(splitA, 20, y);
+        y += splitA.length * 5 + 4;
+
+        // Expectations
+        const expectationsText = `Interviewer Expectations: ${q.interviewer_expectations}`;
+        const splitE = doc.splitTextToSize(expectationsText, 170);
+        if (y + splitE.length * 5 > 270) {
+          doc.addPage();
+          y = 20;
+        }
+        doc.text(splitE, 20, y);
+        y += splitE.length * 5 + 3;
+
+        // Common Mistakes
+        const mistakesText = `Common Mistakes: ${q.common_mistakes}`;
+        const splitM = doc.splitTextToSize(mistakesText, 170);
+        if (y + splitM.length * 5 > 270) {
+          doc.addPage();
+          y = 20;
+        }
+        doc.text(splitM, 20, y);
+        y += splitM.length * 5 + 3;
+
+        // Best Practices
+        const practicesText = `Best Practices: ${q.best_practices}`;
+        const splitP = doc.splitTextToSize(practicesText, 170);
+        if (y + splitP.length * 5 > 270) {
+          doc.addPage();
+          y = 20;
+        }
+        doc.text(splitP, 20, y);
+        y += splitP.length * 5 + 8; // Extra padding between questions
       });
-      if (response.ok) {
-        const blob = await response.blob();
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${project.name.replace(/\s+/g, '_').lower()}_interview_qa.pdf`;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        window.URL.revokeObjectURL(url);
-      } else {
-        alert("Failed to export PDF file.");
-      }
+
+      const fileName = `${project.name.replace(/\s+/g, '_').toLowerCase()}_interview_qa.pdf`;
+      doc.save(fileName);
     } catch (err) {
       console.error(err);
-      alert("Error generating PDF.");
+      alert("Error generating PDF: " + err.message);
     } finally {
       setPdfDownloading(false);
     }
@@ -202,7 +268,7 @@ export default function InterviewQuestions() {
         <button 
           onClick={handleDownloadPDF} 
           className="btn btn-primary" 
-          disabled={pdfDownloading}
+          disabled={pdfDownloading || questions.length === 0}
           style={{ padding: '10px 20px' }}
         >
           {pdfDownloading ? 'Generating PDF...' : '📥 Download QA Guide (PDF)'}

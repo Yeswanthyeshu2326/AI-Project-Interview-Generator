@@ -1,10 +1,13 @@
 import React, { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth, API_URL } from '../context/AuthContext';
+import { useAuth } from '../context/AuthContext';
+import { supabase } from '../supabaseClient';
+import { isGeminiConfigured, getGeminiApiKey, analyzeProject, setStatusCallback } from '../utils/gemini';
+import JSZip from 'jszip';
 import '../styles/dashboard.css';
 
 export default function UploadProject() {
-  const { token } = useAuth();
+  const { user } = useAuth();
   const navigate = useNavigate();
 
   // Active Tab: 'zip' or 'github'
@@ -14,6 +17,7 @@ export default function UploadProject() {
   const [projectName, setProjectName] = useState('');
   const [githubUrl, setGithubUrl] = useState('');
   const [selectedFile, setSelectedFile] = useState(null);
+  const [apiKeyInput, setApiKeyInput] = useState('');
   
   // Upload States
   const [dragActive, setDragActive] = useState(false);
@@ -22,6 +26,8 @@ export default function UploadProject() {
   const [error, setError] = useState('');
 
   const fileInputRef = useRef(null);
+
+  const hasApiKey = isGeminiConfigured();
 
   // Drag and drop handlers
   const handleDrag = (e) => {
@@ -43,7 +49,6 @@ export default function UploadProject() {
       const file = e.dataTransfer.files[0];
       setSelectedFile(file);
       if (!projectName) {
-        // Auto-populate project name from filename (excluding extension)
         const baseName = file.name.substring(0, file.name.lastIndexOf('.')) || file.name;
         setProjectName(baseName);
       }
@@ -65,10 +70,50 @@ export default function UploadProject() {
     fileInputRef.current.click();
   };
 
+  const handleSaveKey = (e) => {
+    e.preventDefault();
+    if (apiKeyInput.trim()) {
+      localStorage.setItem('gemini_api_key', apiKeyInput.trim());
+      window.location.reload();
+    }
+  };
+
+  // Select key files to send to Gemini to optimize token usage
+  const selectKeyFiles = (files) => {
+    let totalLength = 0;
+    const selected = [];
+    
+    const sorted = [...files].sort((a, b) => {
+      const getScore = (p) => {
+        const name = p.toLowerCase();
+        if (name.endsWith('package.json') || name.endsWith('requirements.txt') || name.endsWith('gemfile') || name.endsWith('cargo.toml')) return 100;
+        if (name.includes('app.js') || name.includes('main.py') || name.includes('index.js') || name.includes('app.jsx')) return 90;
+        if (name.endsWith('.jsx') || name.endsWith('.tsx') || name.endsWith('.py') || name.endsWith('.go') || name.endsWith('.rs')) return 80;
+        if (name.endsWith('.js') || name.endsWith('.ts')) return 70;
+        if (name.endsWith('.html') || name.endsWith('.css')) return 50;
+        return 10;
+      };
+      return getScore(b.path) - getScore(a.path);
+    });
+
+    for (const file of sorted) {
+      if (totalLength + file.content.length < 80000 && selected.length < 20) {
+        selected.push(file);
+        totalLength += file.content.length;
+      }
+    }
+    return selected;
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     
+    if (!hasApiKey) {
+      setError('Please configure your Gemini API Key first.');
+      return;
+    }
+
     if (!projectName.trim()) {
       setError('Please provide a project name.');
       return;
@@ -76,74 +121,181 @@ export default function UploadProject() {
 
     setLoading(true);
     
-    // Step-by-step pipeline loading status simulator
-    const steps = [
-      "Uploading repository contents...",
-      "Extracting zip files...",
-      "Parsing directory structure & counting LOC...",
-      "Detecting frameworks and technologies...",
-      "Generating AI explanations and summaries...",
-      "Synthesizing system architecture diagrams...",
-      "Compiling tailored interview questions & answers...",
-      "Finalizing database records..."
-    ];
-
-    let stepIdx = 0;
-    setStatusMessage(steps[0]);
-    const timer = setInterval(() => {
-      if (stepIdx < steps.length - 1) {
-        stepIdx++;
-        setStatusMessage(steps[stepIdx]);
-      }
-    }, 3500);
-
     try {
-      let response;
+      let files = [];
+
       if (uploadMode === 'zip') {
         if (!selectedFile) {
-          throw new Error('Please select a project file (ZIP, code file, PDF, or image).');
+          throw new Error('Please select a project ZIP file.');
         }
         
-        const formData = new FormData();
-        formData.append('name', projectName);
-        formData.append('file', selectedFile);
-
-        response = await fetch(`${API_URL}/api/projects/upload-zip`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`
-          },
-          body: formData
-        });
+        setStatusMessage("Reading ZIP file in browser...");
+        const zip = new JSZip();
+        const zipContents = await zip.loadAsync(selectedFile);
+        
+        setStatusMessage("Extracting and scanning files...");
+        for (const [path, zipEntry] of Object.entries(zipContents.files)) {
+          if (!zipEntry.dir) {
+            // Keep readable text/code files, skip binary/node_modules/cache
+            const isCode = /\.(js|jsx|ts|tsx|py|html|css|json|md|go|rs|c|cpp|h|java|cs)$/i.test(path);
+            const isIgnored = path.includes('node_modules/') || path.includes('.git/') || path.includes('venv/') || path.includes('__pycache__/') || path.includes('dist/') || path.includes('build/');
+            if (isCode && !isIgnored) {
+              try {
+                const text = await zipEntry.async('string');
+                if (text.trim().length > 0) {
+                  files.push({ path, content: text, size: text.length });
+                }
+              } catch (err) {
+                console.warn("Could not read file:", path, err);
+              }
+            }
+          }
+        }
       } else {
         if (!githubUrl.trim()) {
           throw new Error('Please provide a GitHub repository URL.');
         }
 
-        const formData = new FormData();
-        formData.append('name', projectName);
-        formData.append('repo_url', githubUrl);
+        setStatusMessage("Parsing GitHub Repository URL...");
+        const match = githubUrl.match(/github\.com\/([^/]+)\/([^/]+)/);
+        if (!match) {
+          throw new Error("Invalid GitHub Repository URL. Make sure it follows: https://github.com/owner/repository");
+        }
+        const owner = match[1];
+        const repo = match[2].replace(/\.git$/, '');
 
-        response = await fetch(`${API_URL}/api/projects/import-github`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`
-          },
-          body: formData
+        setStatusMessage("Fetching repository file structure from GitHub...");
+        // 1. Fetch default branch
+        const repoInfo = await fetch(`https://api.github.com/repos/${owner}/${repo}`)
+          .then(res => {
+            if (!res.ok) throw new Error("GitHub repository not found or is private.");
+            return res.json();
+          });
+        const defaultBranch = repoInfo.default_branch || 'main';
+
+        // 2. Fetch file tree recursively
+        const treeUrl = `https://api.github.com/repos/${owner}/${repo}/git/trees/${defaultBranch}?recursive=1`;
+        const treeRes = await fetch(treeUrl);
+        if (!treeRes.ok) {
+          throw new Error("Failed to fetch repository tree. Ensure repository is public.");
+        }
+        const treeData = await treeRes.json();
+
+        // 3. Filter for code files
+        const codeFiles = treeData.tree.filter(item => {
+          const isCode = /\.(js|jsx|ts|tsx|py|html|css|json|md|go|rs|c|cpp|h|java|cs)$/i.test(item.path);
+          const isIgnored = item.path.includes('node_modules/') || item.path.includes('.git/') || item.path.includes('venv/') || item.path.includes('__pycache__/') || item.path.includes('dist/') || item.path.includes('build/');
+          return item.type === 'blob' && isCode && !isIgnored;
         });
+
+        if (codeFiles.length === 0) {
+          throw new Error("No readable code files found in the repository.");
+        }
+
+        setStatusMessage(`Downloading project files from GitHub (downloading top ${Math.min(codeFiles.length, 15)})...`);
+        // Limit to top 15 files to keep fetch requests low
+        const filesToDownload = codeFiles.slice(0, 15);
+        for (const item of filesToDownload) {
+          const rawUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${defaultBranch}/${item.path}`;
+          try {
+            const contentRes = await fetch(rawUrl);
+            if (contentRes.ok) {
+              const content = await contentRes.text();
+              files.push({ path: item.path, content, size: content.length });
+            }
+          } catch (e) {
+            console.error("Could not fetch file content:", item.path, e);
+          }
+        }
       }
 
-      clearInterval(timer);
-
-      if (!response.ok) {
-        const errData = await response.json();
-        throw new Error(errData.detail || 'Failed to process repository.');
+      if (files.length === 0) {
+        throw new Error("No code files could be successfully read.");
       }
 
-      const project = await response.json();
-      navigate(`/dashboard?project=${project.id}`);
+      // Filter and limit files sent to Gemini
+      const keyFiles = selectKeyFiles(files);
+
+      // Run Single Combined Gemini Call (analysis + questions + resume in 1 API request)
+      setStatusMessage("Analyzing codebase with Gemini AI...");
+      // Connect Gemini's retry status to the UI so user sees countdown
+      setStatusCallback((msg) => setStatusMessage(msg));
+      const result = await analyzeProject(projectName, keyFiles);
+      setStatusCallback(null); // Disconnect after done
+      const analysis = result.analysis;
+      const questions = result.questions;
+      const resume = result.resume;
+
+      // Insert directly into Supabase
+      setStatusMessage("Saving records to Supabase database...");
+      
+      const { data: projectData, error: projectError } = await supabase.from('projects').insert({
+        user_id: user.id,
+        name: projectName,
+        github_url: uploadMode === 'github' ? githubUrl : null,
+        file_structure: files.map(f => ({ path: f.path, size: f.size })),
+        tech_stack: analysis.detected_technologies,
+        complexity_score: analysis.complexity_score || 50,
+        quality_score: analysis.quality_score || 50,
+        ats_score: analysis.ats_score || 50
+      }).select().single();
+
+      if (projectError) {
+        throw new Error("Supabase Projects Save Error: " + projectError.message);
+      }
+
+      const projectId = projectData.id;
+
+      const { error: analysisError } = await supabase.from('code_analyses').insert({
+        project_id: projectId,
+        beginner_summary: analysis.beginner_summary,
+        technical_summary: analysis.technical_summary,
+        recruiter_summary: analysis.recruiter_summary,
+        linkedin_summary: analysis.linkedin_summary,
+        explain_fresher: analysis.explain_fresher,
+        explain_swe: analysis.explain_swe,
+        explain_team_lead: analysis.explain_team_lead,
+        explain_interview: analysis.explain_interview,
+        diagrams_mermaid: analysis.diagrams_mermaid
+      });
+
+      if (analysisError) {
+        throw new Error("Supabase Code Analysis Save Error: " + analysisError.message);
+      }
+
+      const questionsData = questions.map(q => ({
+        project_id: projectId,
+        difficulty: q.difficulty,
+        question: q.question,
+        ideal_answer: q.ideal_answer,
+        interviewer_expectations: q.interviewer_expectations,
+        common_mistakes: q.common_mistakes,
+        best_practices: q.best_practices
+      }));
+
+      const { error: questionsError } = await supabase.from('questions').insert(questionsData);
+      if (questionsError) {
+        throw new Error("Supabase Questions Save Error: " + questionsError.message);
+      }
+
+      const { error: resumeError } = await supabase.from('resume_entries').insert({
+        project_id: projectId,
+        project_name: resume.project_name || projectName,
+        description: resume.description,
+        key_features: resume.key_features,
+        technologies: resume.technologies,
+        achievements: resume.achievements,
+        ats_optimized_text: resume.ats_optimized_text
+      });
+
+      if (resumeError) {
+        throw new Error("Supabase Resume Save Error: " + resumeError.message);
+      }
+
+      setStatusMessage("Project successfully saved!");
+      navigate(`/dashboard?project=${projectId}`);
     } catch (err) {
-      clearInterval(timer);
+      console.error(err);
       setError(err.message || 'An error occurred during submission.');
       setLoading(false);
     }
@@ -159,6 +311,37 @@ export default function UploadProject() {
           </p>
 
           {error && <div className="error-banner" style={{ textAlign: 'left' }}>{error}</div>}
+
+          {/* Prompt API key configuration if not set */}
+          {!hasApiKey && (
+            <div style={{
+              background: 'rgba(255, 171, 0, 0.15)',
+              border: '1px solid #ffab00',
+              borderRadius: '8px',
+              padding: '16px',
+              marginBottom: '24px',
+              textAlign: 'left'
+            }}>
+              <h4 style={{ color: '#ffab00', margin: '0 0 8px 0', fontSize: '1rem' }}>⚠️ Gemini API Key Required</h4>
+              <p style={{ fontSize: '0.85rem', margin: '0 0 12px 0', color: 'var(--text-secondary)' }}>
+                Since this application runs entirely serverless in your browser, you must provide your own Gemini API Key. Your key is stored locally in your browser and is never sent to any external server.
+              </p>
+              <form onSubmit={handleSaveKey} style={{ display: 'flex', gap: '8px' }}>
+                <input
+                  type="password"
+                  className="input-field"
+                  placeholder="Paste AI Studio API Key..."
+                  value={apiKeyInput}
+                  onChange={(e) => setApiKeyInput(e.target.value)}
+                  style={{ margin: 0 }}
+                  required
+                />
+                <button type="submit" className="btn btn-primary" style={{ whiteSpace: 'nowrap' }}>
+                  Save Key
+                </button>
+              </form>
+            </div>
+          )}
 
           {loading ? (
             <div style={{
@@ -251,6 +434,7 @@ export default function UploadProject() {
                   <input
                     ref={fileInputRef}
                     type="file"
+                    accept=".zip"
                     style={{ display: 'none' }}
                     onChange={handleFileChange}
                   />
@@ -267,10 +451,10 @@ export default function UploadProject() {
                   ) : (
                     <div>
                       <div style={{ fontWeight: '600', fontSize: '1rem', marginBottom: '8px' }}>
-                        Drag & Drop your project file here
+                        Drag & Drop your project ZIP here
                       </div>
                       <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                        or click to browse local files (ZIP, code, PDF, or image)
+                        or click to browse local ZIP files
                       </div>
                     </div>
                   )}
@@ -287,7 +471,7 @@ export default function UploadProject() {
                     placeholder="https://github.com/username/repository"
                     value={githubUrl}
                     onChange={(e) => setGithubUrl(e.target.value)}
-                    required
+                    required={uploadMode === 'github'}
                   />
                   <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '6px', display: 'block' }}>
                     Note: The repository must be public.
@@ -298,7 +482,8 @@ export default function UploadProject() {
               <button
                 type="submit"
                 className="btn btn-primary"
-                style={{ width: '100%', padding: '12px' }}
+                style={{ width: '100%', padding: '12px', marginTop: '20px' }}
+                disabled={!hasApiKey}
               >
                 Analyze Codebase
               </button>

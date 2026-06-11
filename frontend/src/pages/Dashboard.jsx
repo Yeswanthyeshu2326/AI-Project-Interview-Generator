@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams, Link, useNavigate } from 'react-router-dom';
-import { useAuth, API_URL } from '../context/AuthContext';
+import { useAuth } from '../context/AuthContext';
+import { supabase } from '../supabaseClient';
 import ScoreRing from '../components/ScoreRing';
 import MermaidViewer from '../components/MermaidViewer';
 import '../styles/dashboard.css';
@@ -45,8 +46,42 @@ function TreeNode({ node }) {
   );
 }
 
+// Convert flat list of file paths to hierarchical tree
+function buildTree(fileList) {
+  if (!fileList || !Array.isArray(fileList)) return null;
+  const root = { name: 'Repository Root', type: 'directory', children: [] };
+  
+  for (const file of fileList) {
+    const parts = file.path.split('/');
+    let current = root;
+    
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i];
+      const isLast = i === parts.length - 1;
+      
+      let child = current.children.find(c => c.name === part);
+      if (!child) {
+        child = {
+          name: part,
+          type: isLast ? 'file' : 'directory',
+          size: isLast ? file.size : undefined,
+          children: isLast ? undefined : []
+        };
+        current.children.push(child);
+      }
+      current = child;
+    }
+  }
+  
+  // Return the first child if there's only one root directory (e.g. repo name), otherwise the root itself
+  if (root.children.length === 1 && root.children[0].type === 'directory') {
+    return root.children[0];
+  }
+  return root;
+}
+
 export default function Dashboard() {
-  const { token } = useAuth();
+  const { user } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const activeProjectId = searchParams.get('project');
@@ -59,43 +94,46 @@ export default function Dashboard() {
   const [activeTab, setActiveTab] = useState('summary'); // 'summary', 'explainers', 'tree', 'diagrams'
   const [summarySubTab, setSummarySubTab] = useState('beginner'); // 'beginner', 'technical', 'recruiter', 'linkedin'
   const [explainerSubTab, setExplainerSubTab] = useState('fresher'); // 'fresher', 'swe', 'lead', 'interview'
-  const [diagramSubTab, setDiagramSubTab] = useState('system'); // 'system', 'flow', 'component'
   
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  // Fetch projects list
+  // Fetch projects list from Supabase
   useEffect(() => {
     const fetchProjects = async () => {
       try {
-        const response = await fetch(`${API_URL}/api/projects/`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if (response.ok) {
-          const data = await response.json();
-          setProjects(data);
-          
-          // Determine project to display
-          if (data.length > 0) {
-            if (activeProjectId) {
-              const matched = data.find(p => p.id === activeProjectId);
-              if (matched) setActiveProject(matched);
-              else setActiveProject(data[0]);
-            } else {
-              setActiveProject(data[0]);
-            }
+        const { data, error: err } = await supabase
+          .from('projects')
+          .select('*')
+          .order('created_at', { ascending: false });
+
+        if (err) throw err;
+
+        setProjects(data || []);
+        
+        // Determine project to display
+        if (data && data.length > 0) {
+          if (activeProjectId) {
+            const matched = data.find(p => p.id === activeProjectId);
+            if (matched) setActiveProject(matched);
+            else setActiveProject(data[0]);
           } else {
-            setLoading(false);
+            setActiveProject(data[0]);
           }
+        } else {
+          setLoading(false);
         }
       } catch (err) {
-        setError('Failed to load projects.');
+        console.error(err);
+        setError('Failed to load projects from Supabase.');
       }
     };
-    fetchProjects();
-  }, [token, activeProjectId]);
+    if (user) {
+      fetchProjects();
+    }
+  }, [user, activeProjectId]);
 
-  // Fetch active project analysis
+  // Fetch active project analysis from Supabase
   useEffect(() => {
     if (!activeProject) return;
 
@@ -103,45 +141,48 @@ export default function Dashboard() {
       setLoading(true);
       setError('');
       try {
-        const response = await fetch(`${API_URL}/api/projects/${activeProject.id}/analysis`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if (response.ok) {
-          const data = await response.json();
-          setAnalysis(data);
-        } else {
-          setError('Failed to fetch project analysis detail.');
-        }
+        const { data, error: err } = await supabase
+          .from('code_analyses')
+          .select('*')
+          .eq('project_id', activeProject.id)
+          .single();
+
+        if (err) throw err;
+
+        setAnalysis(data);
       } catch (err) {
-        setError('Error loading analysis details.');
+        console.error(err);
+        setError('Error loading analysis details from Supabase.');
       } finally {
         setLoading(false);
       }
     };
 
     fetchAnalysis();
-  }, [activeProject, token]);
+  }, [activeProject]);
 
   const handleDeleteProject = async (projectId) => {
     if (!window.confirm("Are you sure you want to delete this project analysis? This will wipe all mock history and QA logs.")) return;
     
     try {
-      const response = await fetch(`${API_URL}/api/projects/${projectId}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (response.ok) {
-        const remaining = projects.filter(p => p.id !== projectId);
-        setProjects(remaining);
-        if (remaining.length > 0) {
-          navigate(`/dashboard?project=${remaining[0].id}`);
-        } else {
-          setActiveProject(null);
-          setAnalysis(null);
-        }
+      const { error: err } = await supabase
+        .from('projects')
+        .delete()
+        .eq('id', projectId);
+
+      if (err) throw err;
+
+      const remaining = projects.filter(p => p.id !== projectId);
+      setProjects(remaining);
+      if (remaining.length > 0) {
+        navigate(`/dashboard?project=${remaining[0].id}`);
+      } else {
+        setActiveProject(null);
+        setAnalysis(null);
       }
     } catch (err) {
       console.error("Delete project failed:", err);
+      alert("Failed to delete project: " + err.message);
     }
   };
 
@@ -150,12 +191,15 @@ export default function Dashboard() {
       <div className="page-container animate-fade-in" style={{ textAlign: 'center', padding: '80px 20px' }}>
         <h2 style={{ fontSize: '2rem', marginBottom: '16px' }}>No Analyzed Projects Yet</h2>
         <p style={{ color: 'var(--text-secondary)', maxWidth: '500px', margin: '0 auto 30px auto' }}>
-          Upload your zip folder codebase or link your GitHub repo to generate summaries, diagrams, interview sheets, and mock tests.
+          Upload your ZIP folder codebase or link your GitHub repo to generate summaries, diagrams, interview sheets, and mock tests.
         </p>
         <Link to="/upload" className="btn btn-primary">Analyze a Project</Link>
       </div>
     );
   }
+
+  // Construct directory tree dynamically
+  const fileTree = activeProject ? buildTree(activeProject.file_structure) : null;
 
   return (
     <div className="page-container animate-fade-in" style={{ paddingBottom: '80px' }}>
@@ -361,8 +405,8 @@ export default function Dashboard() {
                 <div>
                   <h3 style={{ fontSize: '1rem', marginBottom: '12px' }}>Codebase Tree Walker</h3>
                   <div style={{ background: 'rgba(0, 0, 0, 0.15)', padding: '16px', borderRadius: '8px', maxHeight: '500px', overflowY: 'auto' }}>
-                    {activeProject.file_structure ? (
-                      <TreeNode node={activeProject.file_structure} />
+                    {fileTree ? (
+                      <TreeNode node={fileTree} />
                     ) : (
                       <div style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>No folder structure found.</div>
                     )}
@@ -372,34 +416,12 @@ export default function Dashboard() {
 
               {activeTab === 'diagrams' && (
                 <div>
-                  <div style={{ display: 'flex', gap: '8px', marginBottom: '20px' }}>
-                    {[
-                      { key: 'system', label: 'System Architecture' },
-                      { key: 'flow', label: 'Core Flow' },
-                      { key: 'component', label: 'Component Map' }
-                    ].map(sub => (
-                      <button
-                        key={sub.key}
-                        onClick={() => setDiagramSubTab(sub.key)}
-                        style={{
-                          background: diagramSubTab === sub.key ? 'var(--primary-glow)' : 'transparent',
-                          color: diagramSubTab === sub.key ? 'var(--primary)' : 'var(--text-secondary)',
-                          border: '1px solid',
-                          borderColor: diagramSubTab === sub.key ? 'var(--primary)' : 'var(--border-color)',
-                          padding: '6px 12px',
-                          borderRadius: '6px',
-                          fontSize: '0.8rem',
-                          fontWeight: '600',
-                          cursor: 'pointer'
-                        }}
-                      >
-                        {sub.label}
-                      </button>
-                    ))}
-                  </div>
-                  {diagramSubTab === 'system' && <MermaidViewer chart={analysis.diagrams_mermaid.system} />}
-                  {diagramSubTab === 'flow' && <MermaidViewer chart={analysis.diagrams_mermaid.flow} />}
-                  {diagramSubTab === 'component' && <MermaidViewer chart={analysis.diagrams_mermaid.component} />}
+                  <h3 style={{ fontSize: '1.1rem', marginBottom: '16px' }}>System Architecture Map</h3>
+                  {analysis?.diagrams_mermaid?.architecture || analysis?.diagrams_mermaid?.system ? (
+                    <MermaidViewer chart={analysis.diagrams_mermaid.architecture || analysis.diagrams_mermaid.system} />
+                  ) : (
+                    <div style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>No architecture diagrams generated.</div>
+                  )}
                 </div>
               )}
             </div>

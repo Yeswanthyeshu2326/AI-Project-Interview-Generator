@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
-import { useAuth, API_URL } from '../context/AuthContext';
+import { useAuth } from '../context/AuthContext';
+import { supabase } from '../supabaseClient';
 import '../styles/dashboard.css';
 
 export default function ResumeGenerator() {
-  const { token } = useAuth();
+  const { user } = useAuth();
   const [searchParams] = useSearchParams();
   const projectId = searchParams.get('project');
 
@@ -16,40 +17,41 @@ export default function ResumeGenerator() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    if (!projectId) return;
+    if (!projectId || !user) return;
 
     const fetchResumeData = async () => {
       setLoading(true);
       setError('');
       try {
         // Fetch project metadata
-        const projRes = await fetch(`${API_URL}/api/projects/${projectId}`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if (projRes.ok) {
-          const projData = await projRes.json();
-          setProject(projData);
-        }
+        const { data: projData, error: projErr } = await supabase
+          .from('projects')
+          .select('*')
+          .eq('id', projectId)
+          .single();
+
+        if (projErr) throw projErr;
+        setProject(projData);
 
         // Fetch resume content
-        const resRes = await fetch(`${API_URL}/api/resume/${projectId}`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if (resRes.ok) {
-          const resData = await resRes.json();
-          setResumeData(resData);
-        } else {
-          setError('Failed to load resume description.');
-        }
+        const { data: resData, error: resErr } = await supabase
+          .from('resume_entries')
+          .select('*')
+          .eq('project_id', projectId)
+          .single();
+
+        if (resErr) throw resErr;
+        setResumeData(resData);
       } catch (err) {
-        setError('Error downloading resume contents.');
+        console.error(err);
+        setError('Error downloading resume contents from Supabase.');
       } finally {
         setLoading(false);
       }
     };
 
     fetchResumeData();
-  }, [projectId, token]);
+  }, [projectId, user]);
 
   const handleCopyClipboard = () => {
     if (!resumeData) return;
@@ -58,27 +60,38 @@ export default function ResumeGenerator() {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleDownloadTxt = async () => {
+  const handleDownloadTxt = () => {
+    if (!resumeData || !project) return;
     try {
-      const response = await fetch(`${API_URL}/api/resume/${projectId}/download-txt`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (response.ok) {
-        const blob = await response.blob();
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${project.name.replace(/\s+/g, '_').lower()}_resume_entry.txt`;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        window.URL.revokeObjectURL(url);
-      } else {
-        alert("Failed to export txt file.");
-      }
+      const bulletPoints = resumeData.achievements?.map(a => `• ${a}`).join('\n') || '';
+      const textContent = `
+=========================================
+PROJECT: ${resumeData.project_name}
+TECHNOLOGIES: ${resumeData.technologies?.join(', ') || ''}
+=========================================
+
+DESCRIPTION:
+${resumeData.description}
+
+KEY ACHIEVEMENTS & METRICS:
+${bulletPoints}
+
+ATS-OPTIMIZED KEYWORD DENSE BLOCK:
+${resumeData.ats_optimized_text}
+      `.trim();
+
+      const blob = new Blob([textContent], { type: 'text/plain;charset=utf-8' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${project.name.replace(/\s+/g, '_').toLowerCase()}_resume_entry.txt`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
     } catch (err) {
       console.error(err);
-      alert("Error generating text file.");
+      alert("Error generating text file export.");
     }
   };
 
@@ -107,6 +120,10 @@ export default function ResumeGenerator() {
         </div>
       ) : error ? (
         <div className="error-banner">{error}</div>
+      ) : !resumeData ? (
+        <div className="glass-panel" style={{ padding: '40px', textAlign: 'center', color: 'var(--text-secondary)' }}>
+          No resume details generated for this project yet.
+        </div>
       ) : (
         <div className="dashboard-grid">
           {/* Left Col: Structured Details */}

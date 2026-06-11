@@ -1,101 +1,104 @@
 import React, { createContext, useState, useEffect, useContext } from 'react';
+import { supabase } from '../supabaseClient';
 
 const AuthContext = createContext();
 
-export const API_URL = 
-  window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
-    ? "http://127.0.0.1:8000" 
-    : window.location.origin;
-
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
-  const [token, setToken] = useState(localStorage.getItem('token'));
+  const [token, setToken] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Authenticate user via profile route if token exists
   useEffect(() => {
-    const checkAuth = async () => {
-      if (!token) {
-        setLoading(false);
-        return;
-      }
+    // Check active sessions and set the user
+    const getSession = async () => {
       try {
-        const response = await fetch(`${API_URL}/api/auth/profile`, {
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        });
-        if (response.ok) {
-          const userData = await response.json();
-          setUser(userData);
-        } else {
-          // Token expired or invalid
-          logout();
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session) {
+          setUser({
+            id: session.user.id,
+            email: session.user.email,
+            name: session.user.user_metadata?.name || session.user.email.split('@')[0],
+          });
+          setToken(session.access_token);
         }
       } catch (err) {
-        console.error("Auth check failed:", err);
+        console.error("Error getting session:", err);
       } finally {
         setLoading(false);
       }
     };
 
-    checkAuth();
-  }, [token]);
+    getSession();
 
-  const login = async (email, password) => {
-    const response = await fetch(`${API_URL}/api/auth/login`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ email, password }),
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session) {
+        setUser({
+          id: session.user.id,
+          email: session.user.email,
+          name: session.user.user_metadata?.name || session.user.email.split('@')[0],
+        });
+        setToken(session.access_token);
+      } else {
+        setUser(null);
+        setToken(null);
+      }
+      setLoading(false);
     });
 
-    if (!response.ok) {
-      const contentType = response.headers.get('content-type');
-      if (contentType && contentType.includes('application/json')) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || 'Login failed. Please check credentials.');
-      }
-      throw new Error('Server error. Please try again later.');
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  const login = async (email, password) => {
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+
+    if (error) {
+      throw new Error(error.message || 'Login failed. Please check credentials.');
     }
 
-    const data = await response.json();
-    localStorage.setItem('token', data.access_token);
-    setToken(data.access_token);
-    setUser(data.user);
-    return data.user;
+    const userData = {
+      id: data.user.id,
+      email: data.user.email,
+      name: data.user.user_metadata?.name || data.user.email.split('@')[0],
+    };
+    setUser(userData);
+    setToken(data.session.access_token);
+    return userData;
   };
 
   const register = async (name, email, password) => {
-    const response = await fetch(`${API_URL}/api/auth/register`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          name: name,
+        },
       },
-      body: JSON.stringify({ name, email, password }),
     });
 
-    if (!response.ok) {
-      const contentType = response.headers.get('content-type');
-      if (contentType && contentType.includes('application/json')) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || 'Registration failed.');
-      }
-      throw new Error('Server error. Please try again later.');
+    if (error) {
+      throw new Error(error.message || 'Registration failed.');
     }
 
-    const data = await response.json();
-    localStorage.setItem('token', data.access_token);
-    setToken(data.access_token);
-    setUser(data.user);
-    return data.user;
+    const userData = {
+      id: data.user.id,
+      email: data.user.email,
+      name: data.user.user_metadata?.name || data.user.email.split('@')[0],
+    };
+    setUser(userData);
+    setToken(data.session?.access_token || null);
+    return userData;
   };
 
-  const logout = () => {
-    localStorage.removeItem('token');
-    setToken(null);
+  const logout = async () => {
+    await supabase.auth.signOut();
     setUser(null);
+    setToken(null);
   };
 
   return (
